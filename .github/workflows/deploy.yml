@@ -16,7 +16,7 @@ jobs:
     - name: Set up SSH key
       run: |
         mkdir -p ~/.ssh/
-        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" | base64 --decode > ~/.ssh/id_rsa
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H "${{ secrets.EC2_PUBLIC_IP }}" >> ~/.ssh/known_hosts
 
@@ -30,35 +30,40 @@ jobs:
           df -h
           top -b -n 1 | head -20
 
-          if [ ! -d "/home/ec2-user/demo" ]; then
-            echo "📥 Cloning repository..."
-            git clone https://github.com/yagneshnj/demo.git /home/ec2-user/demo
+          APP_DIR="/home/ec2-user/demo"
+          REPO_URL="https://github.com/yagneshnj/demo.git"
+
+          if [ ! -d "$APP_DIR" ]; then
+            echo "📦 Cloning repository for the first time..."
+            git clone $REPO_URL $APP_DIR
           else
-            echo "📥 Pulling latest changes..."
-            cd /home/ec2-user/demo
-            git reset --hard
-            git clean -xfd
+            echo "🔄 Repository exists. Pulling latest changes..."
+            cd $APP_DIR
+            sudo chown -R ec2-user:ec2-user .
+            sudo git reset --hard
+            sudo git clean -xfd
             git pull origin main
           fi
 
-          cd /home/ec2-user/demo
+          cd $APP_DIR
 
-          echo "⚙️ Setting environment variables..."
+          echo "🛠️ Creating fresh .env file..."
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" > .env
-          echo "DEPLOY_GITHUB_TOKEN=${{ secrets.DEPLOY_GITHUB_TOKEN }}" >> .env
-          echo "DEPLOY_GITHUB_APP_ID=${{ secrets.DEPLOY_GITHUB_APP_ID }}" >> .env
-          echo "DEPLOY_GITHUB_APP_SLUG=${{ secrets.DEPLOY_GITHUB_APP_SLUG }}" >> .env
-          echo "DEPLOY_GITHUB_WEBHOOK_SECRET=${{ secrets.DEPLOY_GITHUB_WEBHOOK_SECRET }}" >> .env
-          echo "DEPLOY_GITHUB_PRIVATE_KEY='${{ secrets.DEPLOY_GITHUB_PRIVATE_KEY }}'" >> .env
+          echo "GITHUB_TOKEN=${{ secrets.DEPLOY_GITHUB_TOKEN }}" >> .env
+          echo "GITHUB_APP_ID=${{ secrets.DEPLOY_GITHUB_APP_ID }}" >> .env
+          echo "GITHUB_APP_SLUG=${{ secrets.DEPLOY_GITHUB_APP_SLUG }}" >> .env
+          echo "GITHUB_WEBHOOK_SECRET=${{ secrets.DEPLOY_GITHUB_WEBHOOK_SECRET }}" >> .env
+          echo "GITHUB_PRIVATE_KEY='${{ secrets.DEPLOY_GITHUB_PRIVATE_KEY }}'" >> .env
+          echo "GITHUB_PRIVATE_KEY_BASE64=${{ secrets.DEPLOY_GITHUB_PRIVATE_KEY }}" >> .env
 
-          echo "🛑 Stopping old container if exists..."
-          docker stop dependency-scan-container || true
-          docker rm dependency-scan-container || true
+          echo "🧹 Stopping and removing old container if exists..."
+          docker stop dependency-scan-container || echo "No container to stop."
+          docker rm dependency-scan-container || echo "No container to remove."
 
-          echo "🧹 Cleaning up Docker images..."
-          docker image prune -af || true
+          echo "🧹 Cleaning up old Docker images..."
+          docker system prune -af || true
 
-          echo "🐳 Building new Docker image..."
+          echo "🐳 Building Docker image..."
           docker build -t dependency-scan-app .
 
           echo "🚀 Running new Docker container..."
@@ -67,5 +72,11 @@ jobs:
             --env-file .env \
             dependency-scan-app
 
-          echo "✅ Deployment complete! App running on port 5000"
+          echo "✅ Deployment successful!"
+
+          echo "📈 System resource usage after deployment:"
+          free -m
+          df -h
+          top -b -n 1 | head -20
         EOF
+
