@@ -10,21 +10,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-    - name: Set up SSH
-      uses: webfactory/ssh-agent@v0.8.0
-      with:
-        ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-
-    - name: Deploy on EC2 Server
+    - name: Set up SSH key
       run: |
-        ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_PUBLIC_IP }} << 'EOF'
-          cd /home/ec2-user/demo
+        mkdir -p ~/.ssh/
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H "${{ secrets.EC2_PUBLIC_IP }}" >> ~/.ssh/known_hosts
 
-          git pull origin main
+    - name: Deploy to EC2
+      run: |
+        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_PUBLIC_IP }} << 'EOF'
+          set -e
 
+          echo "✅ Checking system resources before deployment..."
+          free -m
+          df -h
+          top -b -n 1 | head -20
+
+          APP_DIR="/home/ec2-user/demo"
+          REPO_URL="https://github.com/yagneshnj/demo.git"
+
+          if [ ! -d "$APP_DIR" ]; then
+            echo "📦 Cloning repository for the first time..."
+            git clone $REPO_URL $APP_DIR
+          else
+            echo "🔄 Repository exists. Pulling latest changes..."
+            cd $APP_DIR
+            sudo chown -R ec2-user:ec2-user .
+            sudo git reset --hard
+            sudo git clean -xfd
+            git pull origin main
+          fi
+
+          cd $APP_DIR
+
+          echo "🛠️ Creating fresh .env file..."
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" > .env
           echo "GITHUB_TOKEN=${{ secrets.DEPLOY_GITHUB_TOKEN }}" >> .env
           echo "GITHUB_APP_ID=${{ secrets.DEPLOY_GITHUB_APP_ID }}" >> .env
@@ -32,12 +55,24 @@ jobs:
           echo "GITHUB_WEBHOOK_SECRET=${{ secrets.DEPLOY_GITHUB_WEBHOOK_SECRET }}" >> .env
           echo "GITHUB_PRIVATE_KEY='${{ secrets.DEPLOY_GITHUB_PRIVATE_KEY }}'" >> .env
 
-          docker stop dependency-scan-container || true
-          docker rm dependency-scan-container || true
+          echo "🧹 Stopping and removing old container if exists..."
+          docker stop dependency-scan-container || echo "No container to stop."
+          docker rm dependency-scan-container || echo "No container to remove."
 
+          echo "🧹 Cleaning up old Docker images..."
+          docker system prune -af || true
+
+          echo "🐳 Building Docker image..."
           docker build -t dependency-scan-app .
 
-          docker run -d --name dependency-scan-container --env-file .env -p 127.0.0.1:5000:5000 dependency-scan-app
+          echo "🚀 Running new container..."
+          docker run -d --name dependency-scan-container --env-file .env -p 443:5000 dependency-scan-app
 
-          docker image prune -f
+          echo "✅ Deployment successful!"
+
+          echo "📈 System resource usage after deployment:"
+          free -m
+          df -h
+          top -b -n 1 | head -20
         EOF
+
