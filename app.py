@@ -9,6 +9,11 @@ from auth import get_installation_access_token
 
 app = Flask(__name__)
 
+@app.route("/health", methods=["GET"])
+def health_check():
+    return "OK", 200
+
+
 @app.route("/webhook", methods=["POST"])
 def github_webhook():
     verify_signature(request)
