@@ -7,7 +7,13 @@ load_dotenv()
 
 APP_ID = os.getenv('GITHUB_APP_ID')
 APP_SLUG = os.getenv('GITHUB_APP_SLUG')
-PRIVATE_KEY = os.getenv('GITHUB_PRIVATE_KEY').replace("\\n", "\n")  # Fix for .env format
+# PRIVATE_KEY = os.getenv('GITHUB_PRIVATE_KEY').replace("\\n", "\n")  # Fix for .env format
+
+import base64
+
+private_key_base64 = os.getenv('GITHUB_PRIVATE_KEY_BASE64')
+PRIVATE_KEY = base64.b64decode(private_key_base64).decode('utf-8') if private_key_base64 else None
+
 
 _cached_jwt = None
 _jwt_expiration = 0  # Epoch time

@@ -54,6 +54,7 @@ jobs:
           echo "GITHUB_APP_SLUG=${{ secrets.DEPLOY_GITHUB_APP_SLUG }}" >> .env
           echo "GITHUB_WEBHOOK_SECRET=${{ secrets.DEPLOY_GITHUB_WEBHOOK_SECRET }}" >> .env
           echo "GITHUB_PRIVATE_KEY='${{ secrets.DEPLOY_GITHUB_PRIVATE_KEY }}'" >> .env
+          echo "GITHUB_PRIVATE_KEY_BASE64=${{ secrets.DEPLOY_GITHUB_PRIVATE_KEY }}" >> .env
 
           echo "🧹 Stopping and removing old container if exists..."
           docker stop dependency-scan-container || echo "No container to stop."
