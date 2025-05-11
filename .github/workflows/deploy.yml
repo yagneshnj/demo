@@ -31,7 +31,7 @@ jobs:
           top -b -n 1 | head -20
 
           APP_DIR="/home/ec2-user/demo"
-          REPO_URL="https://${{ secrets.DEPLOY_GITHUB_TOKEN }}@github.com/yagneshnj/demo.git"
+          REPO_URL="https://github.com/yagneshnj/demo.git"
 
           if [ ! -d "$APP_DIR" ]; then
             echo "📦 Cloning repository for the first time..."
