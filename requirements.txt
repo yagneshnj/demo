@@ -5,3 +5,4 @@ PyGithub
 python-dotenv
 pytz
 gunicorn
+gevent>=1.4

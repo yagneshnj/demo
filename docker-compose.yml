@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  pr-dependency-scanner:
+    build: .
+    container_name: pr-scanner
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - GITHUB_APP_ID=${GITHUB_APP_ID}
+      - GITHUB_PRIVATE_KEY_BASE64=${GITHUB_PRIVATE_KEY_BASE64}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_APP_SLUG={GITHUB_APP_SLUG}
+      - GITHUB_WEBHOOK_SECRET={GITHUB_WEBHOOK_SECRET}
+    volumes:
+      - /tmp:/tmp  # Required to persist Maven temp files inside container
+    restart: unless-stopped

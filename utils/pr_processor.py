@@ -1,7 +1,7 @@
 import os
 from github import Github
 from auth import get_installation_access_token, APP_SLUG
-from parsers.maven_parser import parse_pom_xml
+from parsers.maven_parser import parse_pom_xml, parse_pom_xml_via_maven
 from parsers.python_parser import parse_requirements_txt
 from parsers.node_parser import parse_package_json
 from depsdev.maven import query_maven_license
@@ -11,6 +11,16 @@ from utils.risk_classifier import format_licenses_with_risk, get_risk_sort_weigh
 from utils.pr_commenter import create_pr_comment
 from datetime import datetime
 from pytz import timezone  # NEW
+import zipfile
+import io
+import uuid
+import requests
+import shutil
+import glob
+from dotenv import load_dotenv
+load_dotenv()
+
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 
 def get_est_timestamp():
     est = timezone('America/New_York')
@@ -79,13 +89,34 @@ def process_pull_request(payload):
         for file in files_to_process:
             try:
                 if file.name == "pom.xml":
-                    pom_deps = parse_pom_xml(file.decoded_content.decode())
+                    print(f"📦 Detected Maven project. Downloading full repo ZIP...")
+                    archive_url = repo.get_archive_link("zipball", ref=branch_name)
+                    headers = {"Authorization": f"token {access_token}"}
+                    zip_resp = requests.get(archive_url, headers=headers)
+                    zip_file = zipfile.ZipFile(io.BytesIO(zip_resp.content))
+
+                    tmp_dir = f"/tmp/repo_{uuid.uuid4().hex}"
+                    os.makedirs(tmp_dir, exist_ok=True)
+                    zip_file.extractall(tmp_dir)
+
+                    # Find actual extracted folder
+                    extracted_dir = next(os.path.join(tmp_dir, d) for d in os.listdir(tmp_dir))
+                    relative_path = os.path.dirname(file.path)  # e.g., "spring-data-envers"
+                    module_dir = os.path.join(extracted_dir, relative_path)
+
+                    print(f"📄 Extracted dir: {module_dir}")
+                    pom_deps = parse_pom_xml_via_maven(module_dir)
+                    print(f"📦 Dependencies returned by Maven: {module_dir}")
+                    shutil.rmtree(tmp_dir)
                     for group_artifact, version in pom_deps:
+                        print(f"🔍 Querying license for {group_artifact}:{version}")
                         licenses, source = query_maven_license(group_artifact, version)
                         license_with_risk = format_licenses_with_risk(licenses)
+                        print(f"✅ {group_artifact}:{version} ➔ {license_with_risk}")
                         maven_entries.append((file.path, group_artifact, version, license_with_risk, source))
                         if "⚠️" in license_with_risk or "🔥" in license_with_risk:
                             risky_entries.append((file.path, group_artifact, version, license_with_risk, source))
+
                 elif file.name == "requirements.txt":
                     py_deps = parse_requirements_txt(file.decoded_content.decode())
                     for package, version in py_deps:
@@ -104,6 +135,14 @@ def process_pull_request(payload):
                             risky_entries.append((file.path, package, version, license_with_risk, source))
             except Exception as e:
                 print(f"Error processing {file.path}: {e}")
+
+        # Clean up top-level /tmp/output*.txt junk
+        for f in glob.glob("/tmp/output*.txt"):
+            try:
+                os.remove(f)
+                print(f"🧹 Deleted stray temp file: {f}")
+            except Exception as e:
+                print(f"⚠️ Failed to delete temp file {f}: {e}")
 
         # Sort by risk
         maven_entries.sort(key=lambda x: get_risk_sort_weight(x[3]))
