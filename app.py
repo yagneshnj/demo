@@ -1,4 +1,5 @@
-from flask import Flask, request
+import threading
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 load_dotenv()
 from github import Github
@@ -8,6 +9,19 @@ from utils.risky_issue_creator import create_risky_issue
 from auth import get_installation_access_token
 
 app = Flask(__name__)
+
+def handle_event(payload):
+    # this runs in its own thread, so it won’t block the HTTP response
+    print("▶️  Background handler starting…")
+    pr = payload.get("pull_request", {})
+    action = payload.get("action")
+    if action in ["opened", "reopened", "synchronize"] and pr:
+        print(f"🔄 Processing PR #{pr['number']} ({action})")
+        process_pull_request(payload)
+        print(f"✅ Finished processing PR #{pr['number']}")
+    # … your “closed” logic here …
+    else:
+        print("ℹ️ Ignoring non‑PR event.")
 
 @app.route("/health", methods=["GET"])
 def health_check():
@@ -21,7 +35,10 @@ def github_webhook():
     print("🚀 Webhook received.")
 
     if payload.get("action") in ["opened", "reopened", "synchronize"] and "pull_request" in payload:
-        process_pull_request(payload)
+        print(f"🚀 Webhook Thread: action={payload.get('action')}, repo={payload['repository']['full_name']}")
+        threading.Thread(target=handle_event, args=(payload,)).start()
+        return jsonify({"status": "accepted"}), 202
+        # process_pull_request(payload)
     elif payload.get("action") == "closed" and "pull_request" in payload:
         pr = payload["pull_request"]
         if pr.get("merged"):
