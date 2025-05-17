@@ -152,22 +152,40 @@ def parse_pom_xml_via_maven(repo_dir: str) -> List[Tuple[str, str]]:
         with open(output_file_path) as f:
             lines = f.readlines()
 
-        results = []
+        # results = []
+        # for line in lines:
+        #     line = line.strip()
+        #     if ":" in line and not line.startswith("The ") and not line.startswith("---"):
+        #         parts = line.split(":")
+        #         if len(parts) >= 5:
+        #             group = parts[0].strip()
+        #             artifact = parts[1].strip()
+        #             version = parts[3].strip()
+        #             ga = f"{group}:{artifact}"
+        #             print(f"✅ Found dependency: {ga}, version: {version}")
+        #             results.append((ga, version))
+    
         for line in lines:
             line = line.strip()
             if ":" in line and not line.startswith("The ") and not line.startswith("---"):
                 parts = line.split(":")
-                if len(parts) >= 5:
-                    group = parts[0].strip()
-                    artifact = parts[1].strip()
-                    version = parts[3].strip()
-                    ga = f"{group}:{artifact}"
-                    print(f"✅ Found dependency: {ga}, version: {version}")
-                    results.append((ga, version))
+                if len(parts) == 5:
+                    group = parts[0]
+                    artifact = parts[1]
+                    version = parts[4]  # real version
+                elif len(parts) == 4:
+                    group = parts[0]
+                    artifact = parts[1]
+                    version = parts[3]
+                else:
+                    continue
+                ga = f"{group}:{artifact}"
+                print(f"✅ Found dependency: {ga}, version: {version}")
+                results.append((ga, version))
 
         print(f"✅ Total dependencies found: {len(results)}")
         return results
-
+    
     except Exception as e:
         print(f"❌ Failed to run Maven: {e}")
         return []
