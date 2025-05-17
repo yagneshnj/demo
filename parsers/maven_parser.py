@@ -152,7 +152,7 @@ def parse_pom_xml_via_maven(repo_dir: str) -> List[Tuple[str, str]]:
         with open(output_file_path) as f:
             lines = f.readlines()
 
-        # results = []
+        results = []
         # for line in lines:
         #     line = line.strip()
         #     if ":" in line and not line.startswith("The ") and not line.startswith("---"):
