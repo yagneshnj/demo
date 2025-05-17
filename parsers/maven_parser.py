@@ -85,18 +85,20 @@ def parse_pom_xml(content: str) -> List[Tuple[str, str]]:
             )
             properties.update(grandparent_props)
 
-    def resolve(val: str) -> str:
-        if not val:
+    def resolve(val: str, depth=0) -> str:
+        if not val or depth > 10:
             return "unknown"
-        unresolved = []
-        for m in re.findall(r'\$\{(.+?)\}', val):
+
+        matches = re.findall(r'\$\{(.+?)\}', val)
+        for m in matches:
             if m in properties:
-                val = val.replace(f"${{{m}}}", properties[m])
+                replacement = properties[m]
+                # Resolve recursively
+                replacement_resolved = resolve(replacement, depth + 1)
+                val = val.replace(f"${{{m}}}", replacement_resolved)
             else:
-                unresolved.append(m)
+                print(f"❓ Unresolved property: {m}")
                 val = val.replace(f"${{{m}}}", "unknown")
-        for u in unresolved:
-            print(f"❓ Unresolved property: {u}")
         return val
 
     print("🔍 Processing dependencies...")
