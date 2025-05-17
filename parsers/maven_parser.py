@@ -85,20 +85,18 @@ def parse_pom_xml(content: str) -> List[Tuple[str, str]]:
             )
             properties.update(grandparent_props)
 
-    def resolve(val: str, depth=0) -> str:
-        if not val or depth > 10:
+    def resolve(val: str) -> str:
+        if not val:
             return "unknown"
-
-        matches = re.findall(r'\$\{(.+?)\}', val)
-        for m in matches:
+        unresolved = []
+        for m in re.findall(r'\$\{(.+?)\}', val):
             if m in properties:
-                replacement = properties[m]
-                # Resolve recursively
-                replacement_resolved = resolve(replacement, depth + 1)
-                val = val.replace(f"${{{m}}}", replacement_resolved)
+                val = val.replace(f"${{{m}}}", properties[m])
             else:
-                print(f"❓ Unresolved property: {m}")
+                unresolved.append(m)
                 val = val.replace(f"${{{m}}}", "unknown")
+        for u in unresolved:
+            print(f"❓ Unresolved property: {u}")
         return val
 
     print("🔍 Processing dependencies...")
@@ -153,39 +151,21 @@ def parse_pom_xml_via_maven(repo_dir: str) -> List[Tuple[str, str]]:
             lines = f.readlines()
 
         results = []
-        # for line in lines:
-        #     line = line.strip()
-        #     if ":" in line and not line.startswith("The ") and not line.startswith("---"):
-        #         parts = line.split(":")
-        #         if len(parts) >= 5:
-        #             group = parts[0].strip()
-        #             artifact = parts[1].strip()
-        #             version = parts[3].strip()
-        #             ga = f"{group}:{artifact}"
-        #             print(f"✅ Found dependency: {ga}, version: {version}")
-        #             results.append((ga, version))
-    
         for line in lines:
             line = line.strip()
             if ":" in line and not line.startswith("The ") and not line.startswith("---"):
                 parts = line.split(":")
-                if len(parts) == 5:
-                    group = parts[0]
-                    artifact = parts[1]
-                    version = parts[4]  # real version
-                elif len(parts) == 4:
-                    group = parts[0]
-                    artifact = parts[1]
-                    version = parts[3]
-                else:
-                    continue
-                ga = f"{group}:{artifact}"
-                print(f"✅ Found dependency: {ga}, version: {version}")
-                results.append((ga, version))
+                if len(parts) >= 5:
+                    group = parts[0].strip()
+                    artifact = parts[1].strip()
+                    version = parts[3].strip()
+                    ga = f"{group}:{artifact}"
+                    print(f"✅ Found dependency: {ga}, version: {version}")
+                    results.append((ga, version))
 
         print(f"✅ Total dependencies found: {len(results)}")
         return results
-    
+
     except Exception as e:
         print(f"❌ Failed to run Maven: {e}")
         return []
