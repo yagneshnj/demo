@@ -6,7 +6,8 @@ from github import Github
 from utils.pr_processor import process_pull_request
 from utils.signature_verifier import verify_signature
 from utils.risky_issue_creator import create_risky_issue
-from auth import get_installation_access_token
+from utils.comment_agent import handle_issue_comment
+from auth import get_installation_access_token, APP_SLUG
 
 app = Flask(__name__)
 
@@ -65,6 +66,19 @@ def github_webhook():
                 create_risky_issue(repo, pr_number, risky_packages)
             else:
                 print("No risky packages detected. No issue created.")
+
+    elif payload.get("action") == "created" and "comment" in payload:
+        comment = payload["comment"]
+        sender = comment["user"]
+        login = sender.get("login", "").lower()
+
+        if sender.get("type") == "Bot" and APP_SLUG.lower() in login:
+            print(f"🔇 Ignoring bot-authored comment: {login}")
+            return jsonify({"status": "ignored"}), 200
+
+        print(f"💬 Handling issue comment by {login}")
+        threading.Thread(target=handle_issue_comment, args=(payload,)).start()
+        return jsonify({"status": "accepted"}), 202
 
     else:
         print("Ignoring non-PR webhook event.")
