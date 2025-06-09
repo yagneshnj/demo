@@ -6,3 +6,4 @@ python-dotenv
 pytz
 gunicorn
 gevent>=1.4
+openai>=1.0.0
