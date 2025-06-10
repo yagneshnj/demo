@@ -1,14 +1,5 @@
 import os
 from github import Github
-from auth import get_installation_access_token, APP_SLUG
-from parsers.maven_parser import parse_pom_xml, parse_pom_xml_via_maven
-from parsers.python_parser import parse_requirements_txt
-from parsers.node_parser import parse_package_json
-from depsdev.maven import query_maven_license
-from depsdev.pypi import query_pypi_license
-from depsdev.npm import query_npm_license
-from utils.risk_classifier import format_licenses_with_risk, get_risk_sort_weight
-from utils.pr_commenter import create_pr_comment
 from datetime import datetime
 from pytz import timezone  # NEW
 import zipfile
@@ -19,6 +10,19 @@ import shutil
 import glob
 from dotenv import load_dotenv
 load_dotenv()
+
+from auth import get_installation_access_token, APP_SLUG
+from parsers.maven_parser import parse_pom_xml, parse_pom_xml_via_maven
+from parsers.python_parser import parse_requirements_txt
+from parsers.node_parser import parse_package_json
+from depsdev.maven import query_maven_license
+from depsdev.pypi import query_pypi_license
+from depsdev.npm import query_npm_license
+from utils.risk_classifier import format_licenses_with_risk, get_risk_sort_weight
+from utils.pr_commenter import create_pr_comment
+from utils.pr_check_decorator import create_pr_check_run
+from utils.dependency_scanner import scan_dependencies_and_render_markdown
+
 
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 
@@ -75,139 +79,14 @@ def process_pull_request(payload):
         except Exception as e:
             print(f"Error reading folder {folder}: {e}")
 
-    comment_lines = []
-    comment_lines.append("## 📦 Dependency Scan Report")
+    risky_entries, final_comment = scan_dependencies_and_render_markdown(repo, branch_name, access_token)
+    # create_pr_comment(repo, pr_number, final_comment, APP_SLUG) # Comment out PR Comments
 
-    maven_entries = []
-    python_entries = []
-    node_entries = []
-    risky_entries = []
+    # Add PR Decoration
+    head_sha = pr["head"]["sha"]
+    conclusion = "failure" if risky_entries else "success"
+    create_pr_check_run(repo, head_sha, final_comment, conclusion)
 
-    if not files_to_process:
-        comment_lines.append("_No dependency files found in modified folders._")
-    else:
-        for file in files_to_process:
-            try:
-                if file.name == "pom.xml":
-                    print(f"📦 Detected Maven project. Downloading full repo ZIP...")
-                    archive_url = repo.get_archive_link("zipball", ref=branch_name)
-                    headers = {"Authorization": f"token {access_token}"}
-                    zip_resp = requests.get(archive_url, headers=headers)
-                    zip_file = zipfile.ZipFile(io.BytesIO(zip_resp.content))
-
-                    tmp_dir = f"/tmp/repo_{uuid.uuid4().hex}"
-                    os.makedirs(tmp_dir, exist_ok=True)
-                    zip_file.extractall(tmp_dir)
-
-                    # Find actual extracted folder
-                    extracted_dir = next(os.path.join(tmp_dir, d) for d in os.listdir(tmp_dir))
-                    relative_path = os.path.dirname(file.path)  # e.g., "spring-data-envers"
-                    module_dir = os.path.join(extracted_dir, relative_path)
-
-                    print(f"📄 Extracted dir: {module_dir}")
-                    pom_deps = parse_pom_xml_via_maven(module_dir)
-                    print(f"📦 Dependencies returned by Maven: {module_dir}")
-                    shutil.rmtree(tmp_dir)
-                    for group_artifact, version in pom_deps:
-                        print(f"🔍 Querying license for {group_artifact}:{version}")
-                        licenses, source = query_maven_license(group_artifact, version)
-                        license_with_risk = format_licenses_with_risk(licenses)
-                        print(f"✅ {group_artifact}:{version} ➔ {license_with_risk}")
-                        maven_entries.append((file.path, group_artifact, version, license_with_risk, source))
-                        if "⚠️" in license_with_risk or "🔥" in license_with_risk:
-                            risky_entries.append((file.path, group_artifact, version, license_with_risk, source))
-
-                elif file.name == "requirements.txt":
-                    py_deps = parse_requirements_txt(file.decoded_content.decode())
-                    for package, version in py_deps:
-                        licenses, source = query_pypi_license(package, version)
-                        license_with_risk = format_licenses_with_risk(licenses)
-                        python_entries.append((file.path, package, version, license_with_risk, source))
-                        if "⚠️" in license_with_risk or "🔥" in license_with_risk:
-                            risky_entries.append((file.path, package, version, license_with_risk, source))
-                elif file.name == "package.json":
-                    node_deps = parse_package_json(file.decoded_content.decode())
-                    for package, version in node_deps:
-                        licenses, source = query_npm_license(package, version)
-                        license_with_risk = format_licenses_with_risk(licenses)
-                        node_entries.append((file.path, package, version, license_with_risk, source))
-                        if "⚠️" in license_with_risk or "🔥" in license_with_risk:
-                            risky_entries.append((file.path, package, version, license_with_risk, source))
-            except Exception as e:
-                print(f"Error processing {file.path}: {e}")
-
-        # Clean up top-level /tmp/output*.txt junk
-        for f in glob.glob("/tmp/output*.txt"):
-            try:
-                os.remove(f)
-                print(f"🧹 Deleted stray temp file: {f}")
-            except Exception as e:
-                print(f"⚠️ Failed to delete temp file {f}: {e}")
-
-        # Sort by risk
-        maven_entries.sort(key=lambda x: get_risk_sort_weight(x[3]))
-        python_entries.sort(key=lambda x: get_risk_sort_weight(x[3]))
-        node_entries.sort(key=lambda x: get_risk_sort_weight(x[3]))
-        risky_entries.sort(key=lambda x: get_risk_sort_weight(x[3]))
-
-        # Certification check
-        all_risks = [entry[3] for entry in maven_entries + python_entries + node_entries]
-
-        if all(all("✅" in part for part in risk.split(",")) for risk in all_risks):
-            comment_lines.insert(1, "\n📜🏆 **Certified by Open Source Governance: No Risky Licenses Found!**\n")
-
-        # Risky Licenses Table (Always Visible if any)
-        if risky_entries:
-            comment_lines.append("\n### ⚠️ Risky or High-Risk Licenses Detected\n")
-            comment_lines.append("| File Path | Dependency | Version | License (with Risk) | Source |")
-            comment_lines.append("|:----------|:-----------|:--------|:--------------------|:-------|")
-            for path, dep, ver, license_with_risk, source in risky_entries:
-                comment_lines.append(f"| `{path}` | {dep} | {ver} | {license_with_risk} | {source} |")
-
-        # Expand Note
-        comment_lines.append("\n*Expand below to view the full list of all scanned dependencies:*")
-
-        # Collapsed sections for full dependencies
-        if maven_entries:
-            comment_lines.append("\n<details><summary>### Maven (`pom.xml`)</summary>\n\n")
-            comment_lines.append("*_(Expand to view full list of scanned dependencies and their licenses)_*\n")
-            comment_lines.append("| File Path | Dependency | Version | License (with Risk) | Source |")
-            comment_lines.append("|:----------|:-----------|:--------|:--------------------|:-------|")
-            for path, dep, ver, license_with_risk, source in maven_entries:
-                comment_lines.append(f"| `{path}` | {dep} | {ver} | {license_with_risk} | {source} |")
-            comment_lines.append("\n</details>")
-
-        if python_entries:
-            comment_lines.append("\n<details><summary>### Python (`requirements.txt`)</summary>\n\n")
-            comment_lines.append("*_(Expand to view full list of scanned dependencies and their licenses)_*\n")
-            comment_lines.append("| File Path | Dependency | Version | License (with Risk) | Source |")
-            comment_lines.append("|:----------|:-----------|:--------|:--------------------|:-------|")
-            for path, dep, ver, license_with_risk, source in python_entries:
-                comment_lines.append(f"| `{path}` | {dep} | {ver} | {license_with_risk} | {source} |")
-            comment_lines.append("\n</details>")
-
-        if node_entries:
-            comment_lines.append("\n<details><summary>### ReactJS / NodeJS (`package.json`)</summary>\n\n")
-            comment_lines.append("*_(Expand to view full list of scanned dependencies and their licenses)_*\n")
-            comment_lines.append("| File Path | Dependency | Version | License (with Risk) | Source |")
-            comment_lines.append("|:----------|:-----------|:--------|:--------------------|:-------|")
-            for path, dep, ver, license_with_risk, source in node_entries:
-                comment_lines.append(f"| `{path}` | {dep} | {ver} | {license_with_risk} | {source} |")
-            comment_lines.append("\n</details>")
-
-    # Legend
-    comment_lines.append("\n### Legend:")
-    comment_lines.append("- ✅ Safe: Permissive licenses (Apache, MIT, BSD, Zlib)")
-    comment_lines.append("- ⚠️ Risky: Weak copyleft or cloud-restricted licenses (LGPL, SSPL, Elastic, etc.)")
-    comment_lines.append("- 🔥 High Risk: Strong copyleft licenses requiring open source (GPL, AGPL)")
-    comment_lines.append("- ❓ Unknown: License not recognized")
-
-    # Timestamp - Now EST
-    timestamp = get_est_timestamp()
-    comment_lines.append(f"\n---\n_Last updated: {timestamp}_")
-
-    final_comment = "\n".join(comment_lines)
-    create_pr_comment(repo, pr_number, final_comment, APP_SLUG)
     
 def scan_risky_packages(repo, pr_number):
     risky_packages = []
