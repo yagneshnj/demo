@@ -2,13 +2,13 @@ import re
 
 # Define licenses by category
 SAFE_LICENSES = [
-    "Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "BSD", "Zlib", "LGPL-2.1-or-later", "EPL-2.0"
+    "Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "BSD", "Zlib", "LGPL-2.1-or-later", "EPL-2.0", "non-standard", "MPL-2.0", "ASL-2.0"
 ]
 HIGH_RISK_LICENSES = [
     "GPL-2.0", "GPL-3.0", "AGPL-3.0", "AGPL", "Elastic-2.0", "SSPL-1.0"
 ]
 RISKY_LICENSES = [
-    "LGPL-2.1", "LGPL-3.0", "SSPL", "Elastic", "CDDL", "MPL", "EPL", "non-standard"
+    "LGPL-2.1", "LGPL-3.0", "SSPL", "Elastic", "CDDL", "MPL", "EPL"
 ]
 
 def classify_license(license_name: str) -> str:

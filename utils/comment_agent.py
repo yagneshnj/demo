@@ -22,7 +22,15 @@ def handle_issue_comment(payload):
 
     print(f"🤖 Received comment on PR #{pr_number}: '{comment_body}'")
 
-    if not is_open_source_governance_question(comment_body):
+    # 🧠 Fetch thread history
+    try:
+        pr_comments = repo.get_issue(pr_number).get_comments()
+        thread = [f"{c.user.login}: {c.body.strip()}" for c in pr_comments if c.body and c.id != payload["comment"]["id"]][-4:]
+    except Exception as e:
+        print(f"⚠️ Could not load thread context: {e}")
+        thread = []
+
+    if not is_open_source_governance_question(comment_body, context=thread):
         print("🔕 Comment not related to OSS governance. Ignoring.")
         return
 

@@ -3,7 +3,7 @@ import os
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def is_open_source_governance_question(comment_body: str) -> bool:
+def is_open_source_governance_question(comment_body: str, context) -> bool:
 
     prompt = f"""
     You are an expert AI classifier helping route GitHub pull request comments to the appropriate internal teams.
@@ -18,11 +18,12 @@ def is_open_source_governance_question(comment_body: str) -> bool:
 
     ### Instructions:
     If the comment involves open source licensing, mention of a specific license, or legal risks from open source use — respond with **"Yes"**.
+    If the question looks like it is marked to a specific individual— respond with **"No"**.
 
     Otherwise, if it's a general question not related to licenses — respond with **"No"**.
 
     Comment:
-    \"\"\"{comment_body}\"\"\"
+    \"\"\"\\n".join({context} + [{comment_body}])\"\"\"
     """
 
 

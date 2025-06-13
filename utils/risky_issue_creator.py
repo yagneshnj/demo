@@ -10,7 +10,7 @@ def create_risky_issue(repo, pr_number, risky_packages):
     if not risky_packages:
         return  # No risky packages, no issue needed
 
-    issue_title = f"⚠️ License Risk Alert: Risky Packages Detected in PR #{pr_number}"
+    issue_title = f"⚠️ Open Source Governance: Risky Packages Detected"
 
     body_lines = []
     body_lines.append("## ⚠️ License Risk Alert\n")

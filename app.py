@@ -55,10 +55,6 @@ def github_webhook():
 
             repo = github_client.get_repo(repo_full_name)
 
-            # WARNING: Here we don't rescan files.
-            # Instead, assume risky_entries were scanned during PR and stored.
-
-            # For now, basic scan again: (later optimize caching)
             from utils.pr_processor import scan_risky_packages
 
             risky_packages = scan_risky_packages(repo, pr_number)

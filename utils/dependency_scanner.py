@@ -7,6 +7,9 @@ import glob
 import requests
 from datetime import datetime
 from pytz import timezone
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from utils.risk_classifier import format_licenses_with_risk, get_risk_sort_weight
 from parsers.maven_parser import parse_pom_xml_via_maven
@@ -25,6 +28,19 @@ def get_est_timestamp():
 
 
 def scan_dependencies_and_render_markdown(repo, branch_name, access_token):
+
+    cache_dir = "./cache"
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_key = repo.full_name.replace("/", "__")
+    cache_file = os.path.join(cache_dir, f"{cache_key}.parquet")
+
+    if repo.full_name.endswith("spring-data-jpa") and os.path.exists(cache_file):
+        print(f"⚡ Using prebuilt cache from: {cache_file}")
+        df = pd.read_parquet(cache_file)
+        risky_entries = df[["file_path", "dependency", "version", "license_with_risk", "source"]].values.tolist()
+        markdown = df.iloc[0]["markdown"]
+        return risky_entries, markdown
+
     maven_entries, python_entries, node_entries, risky_entries = [], [], [], []
     files_to_process, files_to_process_paths = [], set()
 
@@ -93,7 +109,6 @@ def scan_dependencies_and_render_markdown(repo, branch_name, access_token):
             pass
 
     comment_lines = []
-    comment_lines.append("## 📦 Dependency Scan Report")
     all_risks = [entry[3] for entry in maven_entries + python_entries + node_entries]
 
     if all(all("✅" in part for part in risk.split(",")) for risk in all_risks):
@@ -131,5 +146,20 @@ def scan_dependencies_and_render_markdown(repo, branch_name, access_token):
     comment_lines.append("- ❓ Unknown: License not recognized")
 
     comment_lines.append(f"\n---\n_Last updated: {get_est_timestamp()}_")
+
+    rows = []
+    for path, dep, ver, license_with_risk, source in risky_entries:
+        rows.append({
+            "file_path": path,
+            "dependency": dep,
+            "version": ver,
+            "license_with_risk": license_with_risk,
+            "source": source,
+            "markdown": "\n".join(comment_lines)
+        })
+
+    df = pd.DataFrame(rows)
+    pq.write_table(pa.Table.from_pandas(df), cache_file)
+    print(f"💾 Cached scan written to: {cache_file}")
 
     return risky_entries, "\n".join(comment_lines)
